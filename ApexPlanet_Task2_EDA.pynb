@@ -1,0 +1,171 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# ApexPlanet Task 2 \u2014 EDA & Business Intelligence\n",
+        "\n",
+        "Run cells from top to bottom. Upload the cleaned CSV to Colab or change the file path."
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "import pandas as pd\n",
+        "import numpy as np\n",
+        "import matplotlib.pyplot as plt\n",
+        "import sqlite3\n",
+        "import os\n",
+        "\n",
+        "os.makedirs('results', exist_ok=True)\n",
+        "os.makedirs('charts', exist_ok=True)\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "from google.colab import files\n",
+        "uploaded = files.upload()\n",
+        "# Use the exact uploaded filename below if it differs.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "filename = 'ApexPlanet_Task1_Cleaned_Dataset.csv'  # update if needed\n",
+        "df = pd.read_csv(filename)\n",
+        "df['Order_Date'] = pd.to_datetime(df['Order_Date'], errors='coerce')\n",
+        "print('Shape:', df.shape)\n",
+        "display(df.head())\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "print('Columns:', df.columns.tolist())\n",
+        "df.info()\n",
+        "print('\\nMissing values:\\n', df.isnull().sum())\n",
+        "print('\\nExact duplicate rows:', df.duplicated().sum())\n",
+        "display(df.describe(include='all').T)\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "overview = pd.DataFrame({'Metric':['Total rows','Total columns','Exact duplicate rows','Total missing cells','Unique customers','Unique orders','Total sales'], 'Value':[len(df), df.shape[1], int(df.duplicated().sum()), int(df.isnull().sum().sum()), df['Customer_ID'].nunique(), df['Order_ID'].nunique(), round(df['Total_Sales'].sum(),2)]})\n",
+        "display(overview)\n",
+        "overview.to_csv('results/dataset_overview.csv', index=False)\n",
+        "pd.DataFrame({'Column':df.columns,'Data_Type':df.dtypes.astype(str).values,'Missing_Values':df.isnull().sum().values}).to_csv('results/data_quality_report.csv', index=False)\n",
+        "df.describe(include='all').T.to_csv('results/descriptive_statistics.csv')\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "numeric_cols = df.select_dtypes(include=np.number).columns\n",
+        "for col in numeric_cols[:6]:\n",
+        "    plt.figure(figsize=(8,5))\n",
+        "    plt.hist(df[col].dropna(), bins=20, edgecolor='black')\n",
+        "    plt.title(f'Distribution of {col}')\n",
+        "    plt.xlabel(col); plt.ylabel('Frequency'); plt.tight_layout()\n",
+        "    plt.savefig(f'charts/{col}_histogram.png', dpi=150)\n",
+        "    plt.show(); plt.close()\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "cat_cols = df.select_dtypes(include=['object','category','bool']).columns\n",
+        "for col in cat_cols[:5]:\n",
+        "    counts = df[col].fillna('Missing').astype(str).value_counts().head(10)\n",
+        "    plt.figure(figsize=(9,5)); counts.plot(kind='bar')\n",
+        "    plt.title(f'Top categories in {col}'); plt.xlabel(col); plt.ylabel('Count')\n",
+        "    plt.xticks(rotation=45, ha='right'); plt.tight_layout()\n",
+        "    plt.savefig(f'charts/{col}_bar_chart.png', dpi=150)\n",
+        "    plt.show(); plt.close()\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "numeric_df = df.select_dtypes(include=np.number)\n",
+        "if numeric_df.shape[1] >= 2:\n",
+        "    corr = numeric_df.corr()\n",
+        "    display(corr)\n",
+        "    plt.figure(figsize=(10,7)); plt.imshow(corr, vmin=-1, vmax=1, aspect='auto'); plt.colorbar(label='Correlation')\n",
+        "    plt.xticks(range(len(corr.columns)), corr.columns, rotation=70, ha='right', fontsize=7)\n",
+        "    plt.yticks(range(len(corr.columns)), corr.columns, fontsize=7)\n",
+        "    plt.title('Correlation heatmap'); plt.tight_layout(); plt.savefig('charts/correlation_heatmap.png', dpi=150); plt.show(); plt.close()\n",
+        "    corr.to_csv('results/correlation_matrix.csv')\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "conn = sqlite3.connect('results/analysis.db')\n",
+        "df_sql = df.copy()\n",
+        "df_sql['Order_Date'] = pd.to_datetime(df_sql['Order_Date'], errors='coerce').dt.strftime('%Y-%m-%d')\n",
+        "df_sql.to_sql('dataset', conn, if_exists='replace', index=False)\n",
+        "query = '''SELECT Category, COUNT(*) AS order_rows, ROUND(SUM(Total_Sales), 2) AS total_sales FROM dataset GROUP BY Category ORDER BY total_sales DESC;'''\n",
+        "display(pd.read_sql_query(query, conn))\n",
+        "# See business_questions.sql for all seven prepared queries.\n",
+        "conn.close()\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Interpretation checklist\n",
+        "- Describe what the histograms and bar charts show.\n",
+        "- Report the top category/product/city from SQL results.\n",
+        "- Explain correlation without claiming causation.\n",
+        "- Verify repeated Original_Order_ID values and outlier flags with the data owner."
+      ]
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "name": "ApexPlanet_Task2_EDA.ipynb",
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
